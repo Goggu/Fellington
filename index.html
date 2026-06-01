@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureVault — Enterprise Intelligence Platform</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- VULN #1: Sensitive data in HTML comment -->
+  <!-- 
+    TODO: remove before prod
+    internal-api-key: sv_internal_4f9a2c1b8e3d7f6a
+    staging creds: admin / Passw0rd!Staging
+    FLAG{c0mment5_4r3_n0t_s3cr3t5_7a3f9e2}
+  -->
+
+  <div class="scanline"></div>
+  <div class="noise"></div>
+
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="brand-icon">⬡</span>
+      <span class="brand-name">VulnerIOC</span>
+      <span class="brand-tag">ENTERPRISE</span>
+    </div>
+    <div class="nav-links">
+      <a href="index.html" class="nav-link active">Dashboard</a>
+      <a href="portal.html" class="nav-link">Portal</a>
+      <a href="reports.html" class="nav-link">Reports</a>
+      <a href="admin.html" class="nav-link">Admin</a>
+    </div>
+    <div class="nav-user">
+      <span class="user-badge" id="userDisplay">GUEST</span>
+      <button class="btn-logout" onclick="logout()">↩</button>
+    </div>
+  </nav>
+
+  <main class="dashboard">
+    <section class="hero-section">
+      <div class="hero-text">
+        <p class="hero-eyebrow">CLASSIFIED // INTERNAL USE ONLY</p>
+        <h1 class="hero-title">Intelligence<br/><em>Operations</em><br/>Center</h1>
+        <p class="hero-sub">Unified threat analysis, asset management, and operational reporting for authorized personnel.</p>
+        <div class="hero-cta">
+          <a href="portal.html" class="btn-primary">Access Portal →</a>
+          <a href="reports.html" class="btn-ghost">View Reports</a>
+        </div>
+      </div>
+      <div class="hero-visual">
+        <div class="hex-grid">
+          <div class="hex active"></div><div class="hex"></div><div class="hex active"></div>
+          <div class="hex"></div><div class="hex pulsing"></div><div class="hex"></div>
+          <div class="hex active"></div><div class="hex"></div><div class="hex active"></div>
+        </div>
+        <div class="status-panel">
+          <div class="stat"><span class="stat-val" id="threatCount">247</span><span class="stat-lbl">Threats Monitored</span></div>
+          <div class="stat"><span class="stat-val">99.7%</span><span class="stat-lbl">System Uptime</span></div>
+          <div class="stat"><span class="stat-val" id="alertCount">3</span><span class="stat-lbl">Active Alerts</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="feed-section">
+      <h2 class="section-title">// LIVE FEED</h2>
+      <div class="feed-grid" id="feedGrid"></div>
+    </section>
+
+    <section class="search-section">
+      <h2 class="section-title">// THREAT SEARCH</h2>
+      <div class="search-box">
+        <input type="text" id="searchInput" placeholder="Search threat database..." class="search-input" />
+        <button onclick="searchThreats()" class="btn-search">SCAN</button>
+      </div>
+      <!-- VULN #2: DOM XSS via innerHTML with search results -->
+      <div id="searchResults" class="search-results"></div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <p>SecureVault Intelligence Platform v4.2.1 — CONFIDENTIAL</p>
+    <p class="footer-hash">Build: <span id="buildHash"></span></p>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    // set build hash from URL for "reproducible builds"
+    // VULN #2 entry point — searchInput flows into innerHTML in app.js
+    const params = new URLSearchParams(window.location.search);
+    const q = params.get('q');
+    if (q) {
+      document.getElementById('searchInput').value = q;
+      searchThreats();
+    }
+
+    // build hash — looks innocent
+    const buildParam = params.get('build') || 'a3f7c9';
+    document.getElementById('buildHash').innerHTML = buildParam;
+    // ^^ VULN #3: DOM XSS via URL parameter into innerHTML (build param)
+  </script>
+</body>
+</html>

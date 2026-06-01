@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureVault — Secure Portal</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="scanline"></div>
+  <div class="noise"></div>
+
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="brand-icon">⬡</span>
+      <span class="brand-name">SecureVault</span>
+      <span class="brand-tag">ENTERPRISE</span>
+    </div>
+    <div class="nav-links">
+      <a href="index.html" class="nav-link">Dashboard</a>
+      <a href="portal.html" class="nav-link active">Portal</a>
+      <a href="reports.html" class="nav-link">Reports</a>
+      <a href="admin.html" class="nav-link">Admin</a>
+    </div>
+    <div class="nav-user">
+      <span class="user-badge" id="userDisplay">GUEST</span>
+      <button class="btn-logout" onclick="logout()">↩</button>
+    </div>
+  </nav>
+
+  <main class="portal-main">
+
+    <!-- LOGIN PANEL -->
+    <div class="portal-card" id="loginPanel">
+      <div class="card-header">
+        <span class="card-icon">⚿</span>
+        <h2>Authentication Required</h2>
+        <p>Access to the portal requires valid credentials.</p>
+      </div>
+      <div class="card-body">
+        <div class="field-group">
+          <label>USERNAME</label>
+          <input type="text" id="loginUser" placeholder="operator_id" class="field-input" />
+        </div>
+        <div class="field-group">
+          <label>PASSPHRASE</label>
+          <input type="password" id="loginPass" placeholder="••••••••••" class="field-input" />
+        </div>
+        <div class="field-hint">
+          Forgot credentials? Contact your system administrator.<br/>
+          <small style="opacity:0.4">New accounts: default pass is firstname+birth_year</small>
+        </div>
+        <button onclick="doLogin()" class="btn-primary full-width">AUTHENTICATE →</button>
+        <div id="loginError" class="error-msg"></div>
+      </div>
+    </div>
+
+    <!-- PORTAL DASHBOARD (shown after login) -->
+    <div class="portal-card hidden" id="portalPanel">
+      <div class="card-header">
+        <span class="card-icon">◈</span>
+        <h2>Operational Portal</h2>
+        <p id="welcomeMsg"></p>
+      </div>
+      <div class="card-body">
+        <div class="portal-grid">
+          <div class="portal-tile" onclick="loadAsset('own')">
+            <span class="tile-icon">◉</span>
+            <span class="tile-label">My Assets</span>
+          </div>
+          <div class="portal-tile" onclick="loadAsset('team')">
+            <span class="tile-icon">◈</span>
+            <span class="tile-label">Team Assets</span>
+          </div>
+          <div class="portal-tile highlight" onclick="loadAsset('classified')">
+            <span class="tile-icon">⚠</span>
+            <span class="tile-label">Classified</span>
+          </div>
+          <div class="portal-tile" onclick="showProfile()">
+            <span class="tile-icon">⬡</span>
+            <span class="tile-label">Profile</span>
+          </div>
+        </div>
+        <div id="assetDisplay" class="asset-display"></div>
+      </div>
+    </div>
+
+    <!-- ASSET VIEWER: IDOR vulnerability -->
+    <div class="portal-card" id="assetViewer" style="display:none">
+      <div class="card-header">
+        <span class="card-icon">◆</span>
+        <h2>Asset Record</h2>
+        <button onclick="closeViewer()" class="btn-ghost float-right">✕ CLOSE</button>
+      </div>
+      <div class="card-body" id="assetContent"></div>
+    </div>
+
+  </main>
+
+  <footer class="footer">
+    <p>SecureVault Intelligence Platform v4.2.1 — CONFIDENTIAL</p>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    /*
+     * Authentication model:
+     * We use "JWT-like" tokens stored in localStorage.
+     * Token is base64(header).base64(payload).base64(signature)
+     * Signature is computed client-side (VULN #4: client-side JWT forgery)
+     * The signature check happens in verifyToken() — also client-side.
+     *
+     * Registered users (simulated):
+     *   operator1 / op2024     -> role: analyst
+     *   jsmith    / jsmith1985 -> role: analyst (hint dropped in login panel)
+     *   sysop     / sysop99    -> role: admin
+     */
+
+    const USERS = {
+      operator1: { pass: 'op2024',    role: 'analyst',  uid: 101, name: 'Operator One' },
+      jsmith:    { pass: 'jsmith1985',role: 'analyst',  uid: 102, name: 'John Smith' },
+      sysop:     { pass: 'sysop99',   role: 'admin',    uid: 1,   name: 'System Operator' },
+    };
+
+    // VULN #4: Client-side "JWT" — the signature is just btoa(payload) reversed.
+    // An attacker who reads this JS can forge any token.
+    function makeToken(user) {
+      const header  = btoa(JSON.stringify({ alg: 'SV1', typ: 'JWT' }));
+      const payload = btoa(JSON.stringify({ uid: user.uid, name: user.name, role: user.role, iat: Date.now() }));
+      const sig     = btoa(payload.split('').reverse().join('')); // "signing"
+      return `${header}.${payload}.${sig}`;
+    }
+
+    function verifyToken(token) {
+      try {
+        const parts = token.split('.');
+        if (parts.length !== 3) return null;
+        const payload = JSON.parse(atob(parts[1]));
+        const expectedSig = btoa(parts[1].split('').reverse().join(''));
+        if (parts[2] !== expectedSig) return null;
+        return payload;
+      } catch { return null; }
+    }
+
+    // ASSET DATABASE — IDOR: asset IDs are sequential integers, no ownership check
+    const ASSETS = {
+      101: [
+        { id: 1011, name: 'Field Report Alpha',   content: 'Routine surveillance log. Nothing sensitive.',             owner: 101 },
+        { id: 1012, name: 'Contact List 2024',    content: 'Internal contacts for analyst team.',                      owner: 101 },
+      ],
+      102: [
+        { id: 1021, name: 'Budget Proposal Q3',   content: 'Approved budget allocation for Q3 ops.',                   owner: 102 },
+      ],
+      1: [ // admin
+        { id: 9001, name: '⚠ CLASSIFIED: Op Nightfall', content: '<span class="flag-text">FLAG{1d0r_4ss3t_trav3rs4l_n0_4uth_ch3ck_b2d7}</span><br/>Operation Nightfall dossier — ultra restricted.', owner: 1 },
+        { id: 9002, name: '⚠ CLASSIFIED: Master Keyring', content: 'Vault keys and rotation schedule.', owner: 1 },
+      ],
+    };
+
+    function doLogin() {
+      const u = document.getElementById('loginUser').value.trim();
+      const p = document.getElementById('loginPass').value;
+      const user = USERS[u];
+      if (!user || user.pass !== p) {
+        document.getElementById('loginError').textContent = 'Invalid credentials.';
+        return;
+      }
+      const token = makeToken(user);
+      localStorage.setItem('sv_token', token);
+      showPortal(user);
+    }
+
+    function showPortal(user) {
+      document.getElementById('loginPanel').classList.add('hidden');
+      document.getElementById('portalPanel').classList.remove('hidden');
+      document.getElementById('userDisplay').textContent = user.name.split(' ')[0].toUpperCase();
+      document.getElementById('welcomeMsg').textContent = `Authenticated as ${user.name} [${user.role.toUpperCase()}]`;
+    }
+
+    function loadAsset(type) {
+      const token = localStorage.getItem('sv_token');
+      if (!token) return;
+      const payload = verifyToken(token);
+      if (!payload) return;
+
+      // VULN #5 (IDOR): The asset ID is taken from URL param ?asset=ID with NO ownership check.
+      const params = new URLSearchParams(window.location.search);
+      const forcedId = params.get('asset');
+
+      let assets;
+      if (forcedId) {
+        // Direct asset access — no ownership check!
+        const id = parseInt(forcedId);
+        const allAssets = Object.values(ASSETS).flat();
+        const found = allAssets.find(a => a.id === id);
+        assets = found ? [found] : [];
+      } else if (type === 'classified') {
+        assets = payload.role === 'admin' ? ASSETS[1] : [{ id: 0, name: 'Access Denied', content: 'Insufficient clearance level.' }];
+      } else {
+        assets = ASSETS[payload.uid] || [];
+      }
+
+      const html = assets.map(a =>
+        `<div class="asset-row" onclick="viewAsset(${a.id})">
+          <span class="asset-id">#${a.id}</span>
+          <span class="asset-name">${a.name}</span>
+          <span class="asset-arrow">→</span>
+        </div>`
+      ).join('') || '<p class="dim">No assets found.</p>';
+
+      document.getElementById('assetDisplay').innerHTML = html;
+    }
+
+    function viewAsset(id) {
+      const allAssets = Object.values(ASSETS).flat();
+      const asset = allAssets.find(a => a.id === id);
+      if (!asset) return;
+      document.getElementById('assetViewer').style.display = 'block';
+      document.getElementById('assetContent').innerHTML = `
+        <div class="asset-detail">
+          <div class="detail-row"><span>ID</span><span>#${asset.id}</span></div>
+          <div class="detail-row"><span>NAME</span><span>${asset.name}</span></div>
+          <div class="detail-row"><span>OWNER UID</span><span>${asset.owner}</span></div>
+          <div class="detail-body">${asset.content}</div>
+        </div>`;
+    }
+
+    function closeViewer() {
+      document.getElementById('assetViewer').style.display = 'none';
+    }
+
+    function showProfile() {
+      const token = localStorage.getItem('sv_token');
+      const payload = verifyToken(token);
+      if (!payload) return;
+      document.getElementById('assetDisplay').innerHTML = `
+        <div class="asset-detail">
+          <div class="detail-row"><span>UID</span><span>${payload.uid}</span></div>
+          <div class="detail-row"><span>NAME</span><span>${payload.name}</span></div>
+          <div class="detail-row"><span>ROLE</span><span>${payload.role}</span></div>
+          <div class="detail-row"><span>TOKEN</span><span class="mono small">${token.substring(0,40)}...</span></div>
+        </div>`;
+    }
+
+    // Auto-login if token exists
+    window.addEventListener('DOMContentLoaded', () => {
+      const token = localStorage.getItem('sv_token');
+      if (token) {
+        const payload = verifyToken(token);
+        if (payload) showPortal(payload);
+      }
+
+      // auto-load asset if param present
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('asset')) {
+        const token = localStorage.getItem('sv_token');
+        if (token) loadAsset('direct');
+      }
+    });
+  </script>
+</body>
+</html>

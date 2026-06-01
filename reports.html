@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SecureVault — Reports</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="scanline"></div>
+  <div class="noise"></div>
+
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="brand-icon">⬡</span>
+      <span class="brand-name">SecureVault</span>
+      <span class="brand-tag">ENTERPRISE</span>
+    </div>
+    <div class="nav-links">
+      <a href="index.html" class="nav-link">Dashboard</a>
+      <a href="portal.html" class="nav-link">Portal</a>
+      <a href="reports.html" class="nav-link active">Reports</a>
+      <a href="admin.html" class="nav-link">Admin</a>
+    </div>
+    <div class="nav-user">
+      <span class="user-badge" id="userDisplay">GUEST</span>
+      <button class="btn-logout" onclick="logout()">↩</button>
+    </div>
+  </nav>
+
+  <main class="reports-main">
+    <div class="page-header">
+      <h1 class="page-title">// REPORTS</h1>
+      <p class="page-sub">Operational intelligence summaries and incident reports.</p>
+    </div>
+
+    <!-- Filter bar — prototype pollution entry point -->
+    <div class="filter-bar">
+      <label>FILTER BY TAG:</label>
+      <input type="text" id="filterInput" placeholder='{"status":"active"}' class="field-input mono" style="width:300px"/>
+      <button onclick="applyFilter()" class="btn-search">APPLY</button>
+      <span class="hint-text">// Accepts JSON filter object</span>
+    </div>
+
+    <div id="reportList" class="report-list"></div>
+
+    <div class="page-header" style="margin-top:3rem">
+      <h2 class="section-title">// EXTERNAL RESOURCES</h2>
+      <p class="page-sub">Redirect to partner intelligence feeds.</p>
+    </div>
+
+    <!-- VULN #6: Open redirect via URL param -->
+    <div class="redirect-panel">
+      <p class="dim">Navigate to an external intelligence resource:</p>
+      <div class="redirect-row">
+        <input type="text" id="redirectUrl" class="field-input mono" placeholder="https://partner-feed.example.com/data" style="width:400px"/>
+        <button onclick="doRedirect()" class="btn-ghost">NAVIGATE →</button>
+      </div>
+      <p class="hint-text">// Trusted domains: partners.securevault.io, feeds.intel-share.net</p>
+    </div>
+
+    <!-- VULN #7: postMessage listener with no origin check -->
+    <div class="page-header" style="margin-top:3rem">
+      <h2 class="section-title">// EMBEDDED INTEL FRAME</h2>
+    </div>
+    <div class="embed-panel">
+      <p class="dim">This frame accepts commands from the dashboard via postMessage.</p>
+      <iframe id="intelFrame" src="about:blank" class="intel-frame" title="Intel feed"></iframe>
+      <div id="frameOutput" class="frame-output"></div>
+    </div>
+
+  </main>
+
+  <footer class="footer">
+    <p>SecureVault Intelligence Platform v4.2.1 — CONFIDENTIAL</p>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    // ─── REPORT DATA ─────────────────────────────────────────────────────────
+    const REPORTS = [
+      { id: 'RPT-001', title: 'Q2 Threat Summary',     status: 'active',   clearance: 'public',  summary: 'Overview of Q2 threat landscape.' },
+      { id: 'RPT-002', title: 'Incident Alpha-7',       status: 'closed',   clearance: 'public',  summary: 'Resolved network intrusion, no data loss.' },
+      { id: 'RPT-003', title: 'Asset Inventory 2024',   status: 'active',   clearance: 'public',  summary: 'Full inventory of monitored assets.' },
+      { id: 'RPT-004', title: 'Op Nightfall Debrief',   status: 'active',   clearance: 'secret',  summary: 'Post-op analysis. Restricted.' },
+      { id: 'RPT-005', title: 'Vendor Security Audit',  status: 'pending',  clearance: 'public',  summary: 'Third-party audit findings.' },
+    ];
+
+    // ─── DEFAULT REPORT CONFIG — VULN #5: Prototype Pollution ────────────────
+    // The filter function does a naive merge of user JSON into a config object
+    // using recursive assignment. If the user supplies __proto__ keys,
+    // they pollute Object.prototype, which is later read by renderReport().
+    const reportConfig = {
+      showSecret: false,
+      maxRows: 10,
+    };
+
+    function mergeDeep(target, source) {
+      // VULN #5: no __proto__ / constructor guard
+      for (const key of Object.keys(source)) {
+        if (typeof source[key] === 'object' && source[key] !== null) {
+          if (!target[key]) target[key] = {};
+          mergeDeep(target[key], source[key]);
+        } else {
+          target[key] = source[key];
+        }
+      }
+      return target;
+    }
+
+    function applyFilter() {
+      const raw = document.getElementById('filterInput').value.trim();
+      let parsed;
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        showAlert('Invalid JSON filter.', 'error');
+        return;
+      }
+      mergeDeep(reportConfig, parsed);
+      renderReports();
+    }
+
+    function renderReports(list) {
+      list = list || REPORTS;
+      const container = document.getElementById('reportList');
+      let html = '';
+      for (const r of list) {
+        // Read a property that may have been injected via prototype pollution
+        const isAdmin = ({}).isAdmin; // polluted value shows up here
+        if (r.clearance === 'secret' && !reportConfig.showSecret && !isAdmin) continue;
+
+        const flag = r.clearance === 'secret'
+          ? `<br/><span class="flag-text">FLAG{pr0t0typ3_p0llut10n_0bj3ct_inh3r1t4nc3_c4fe}</span>`
+          : '';
+
+        html += `<div class="report-row ${r.clearance === 'secret' ? 'report-secret' : ''}">
+          <span class="report-id">${r.id}</span>
+          <span class="report-title">${r.title}</span>
+          <span class="report-status status-${r.status}">${r.status.toUpperCase()}</span>
+          <span class="report-clearance clr-${r.clearance}">${r.clearance.toUpperCase()}</span>
+          <div class="report-summary">${r.summary}${flag}</div>
+        </div>`;
+      }
+      container.innerHTML = html || '<p class="dim">No reports match filter.</p>';
+    }
+
+    // ─── OPEN REDIRECT — VULN #6 ─────────────────────────────────────────────
+    // The "trusted domain" check is a prefix match that can be bypassed.
+    // e.g. https://partners.securevault.io.evil.com/
+    function doRedirect() {
+      const url = document.getElementById('redirectUrl').value.trim();
+      const trusted = ['https://partners.securevault.io', 'https://feeds.intel-share.net'];
+      const isTrusted = trusted.some(d => url.startsWith(d));
+
+      if (!isTrusted) {
+        showAlert('Domain not in trusted list. Blocked.', 'error');
+        return;
+      }
+
+      // Check URL param override too
+      const params = new URLSearchParams(window.location.search);
+      const dest = params.get('redirect') || url;
+      window.location.href = dest;
+    }
+
+    // VULN #6 also fires directly from URL: ?redirect=https://evil.com
+    // combined with spoofed referer bypass (client-only, trivially exploitable)
+    window.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      const redir = params.get('redirect');
+      if (redir) {
+        // "validate" by checking if referer contains securevault — trivially spoofable
+        // and on direct navigation there's no referer at all, so this is always true
+        const ref = document.referrer;
+        if (!ref || ref.includes('securevault') || ref === '') {
+          // silent redirect
+          // FLAG left for attacker to discover the mechanism; actual redirect fires
+          // when they craft ?redirect=https://... with no referer
+        }
+      }
+      renderReports();
+    });
+
+    // ─── postMessage NO ORIGIN CHECK — VULN #7 ───────────────────────────────
+    // The page listens for postMessage and executes commands without checking
+    // the origin. An attacker-controlled page can send arbitrary commands.
+    window.addEventListener('message', function(event) {
+      // BUG: no `if (event.origin !== 'https://securevault.example.com') return;`
+      const data = event.data;
+      const output = document.getElementById('frameOutput');
+
+      if (typeof data === 'object' && data.cmd) {
+        if (data.cmd === 'render') {
+          output.innerHTML = data.payload; // also innerHTML — double win
+        } else if (data.cmd === 'filter') {
+          document.getElementById('filterInput').value = data.payload;
+          applyFilter();
+        } else if (data.cmd === 'getFlag') {
+          output.innerHTML = `<span class="flag-text">FLAG{p0stm3ss4g3_n0_0r1g1n_ch3ck_d4t4_3xf1l}</span>`;
+        }
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>VulnerIOC — Admin Console</title>
+  <link rel="stylesheet" href="style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Story+Script&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="scanline"></div>
+  <div class="noise"></div>
+
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="brand-icon">⬡</span>
+      <span class="brand-name">SecureVault</span>
+      <span class="brand-tag">ENTERPRISE</span>
+    </div>
+    <div class="nav-links">
+      <a href="index.html" class="nav-link">Dashboard</a>
+      <a href="portal.html" class="nav-link">Portal</a>
+      <a href="reports.html" class="nav-link">Reports</a>
+      <a href="admin.html" class="nav-link active">Admin</a>
+    </div>
+    <div class="nav-user">
+      <span class="user-badge" id="userDisplay">GUEST</span>
+      <button class="btn-logout" onclick="logout()">↩</button>
+    </div>
+  </nav>
+
+  <!-- VULN #8: Access control is purely client-side CSS/JS visibility toggle.
+       The admin panel content is present in the DOM; the "lock" just hides it.
+       Attacker can use devtools or JS to reveal it. -->
+
+  <main class="admin-main">
+
+    <div id="accessDenied" class="denied-panel">
+      <div class="denied-content">
+        <span class="denied-icon">⊗</span>
+        <h2>ACCESS DENIED</h2>
+        <p>Administrator credentials required.</p>
+        <p class="dim">This area is restricted to system operators with ADMIN clearance.</p>
+        <a href="portal.html" class="btn-primary" style="margin-top:1.5rem">Return to Portal →</a>
+      </div>
+    </div>
+
+    <!-- Admin content is in DOM but hidden via CSS class. Just remove the class. -->
+    <div id="adminConsole" class="admin-console hidden">
+      <div class="page-header">
+        <h1 class="page-title">// ADMIN CONSOLE</h1>
+        <p class="page-sub">System configuration and operator management.</p>
+      </div>
+
+      <div class="admin-grid">
+
+        <div class="admin-card">
+          <h3>System Status</h3>
+          <div class="status-list">
+            <div class="status-row"><span>Core Engine</span><span class="badge green">ONLINE</span></div>
+            <div class="status-row"><span>Threat DB</span><span class="badge green">SYNC</span></div>
+            <div class="status-row"><span>Vault Storage</span><span class="badge yellow">DEGRADED</span></div>
+            <div class="status-row"><span>Audit Log</span><span class="badge green">ACTIVE</span></div>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>Operator Accounts</h3>
+          <div class="op-list" id="opList"></div>
+        </div>
+
+        <div class="admin-card full-span">
+          <h3>⚠ Master Vault — Administrator Access</h3>
+          <p class="dim">Restricted administrative vault. Authenticated admin access only.</p>
+          <div class="vault-display">
+            <span class="flag-text">FLAG{cl13nt_s1d3_4cc3ss_c0ntr0l_byp4ss_d0m_h1dd3n}</span>
+            <p style="margin-top:1rem; opacity:0.5; font-size:0.75rem">
+              VAULT-KEY: 7f3a-9c2b-e1d4-0f8a<br/>
+              ROTATION: 2024-12-01<br/>
+              CLEARANCE: ULTRA
+            </p>
+          </div>
+        </div>
+
+        <div class="admin-card">
+          <h3>Config Override</h3>
+          <p class="dim">Raw configuration injection (maintenance only).</p>
+          <!-- VULN #9: eval() on user input -->
+          <textarea id="configInput" class="config-textarea" placeholder="// Enter config expression&#10;// e.g. getSystemInfo()"></textarea>
+          <button onclick="runConfig()" class="btn-danger">EXECUTE</button>
+          <pre id="configOutput" class="config-output"></pre>
+        </div>
+
+        <div class="admin-card">
+          <h3>Session Inspector</h3>
+          <p class="dim">View raw session storage for debugging.</p>
+          <button onclick="dumpStorage()" class="btn-ghost">DUMP STORAGE</button>
+          <pre id="storageOutput" class="config-output"></pre>
+        </div>
+
+      </div>
+    </div>
+  </main>
+
+  <footer class="footer">
+    <p>SecureVault Intelligence Platform v4.2.1 — CONFIDENTIAL</p>
+  </footer>
+
+  <script src="app.js"></script>
+  <script>
+    // ─── CLIENT-SIDE ACCESS CONTROL — VULN #8 ───────────────────────────────
+    // Role check happens here and only controls CSS visibility.
+    // The admin panel HTML is already in the DOM.
+    function checkAccess() {
+      const token = localStorage.getItem('sv_token');
+      if (!token) {
+        showDenied();
+        return;
+      }
+
+      try {
+        const parts = token.split('.');
+        const payload = JSON.parse(atob(parts[1]));
+
+        if (payload.role === 'admin') {
+          showAdmin(payload);
+        } else {
+          showDenied();
+          // But the content is right there in the DOM... just toggle the classes.
+        }
+      } catch {
+        showDenied();
+      }
+    }
+
+    function showDenied() {
+      document.getElementById('accessDenied').style.display = 'flex';
+      document.getElementById('adminConsole').classList.add('hidden');
+    }
+
+    function showAdmin(payload) {
+      document.getElementById('accessDenied').style.display = 'none';
+      document.getElementById('adminConsole').classList.remove('hidden');
+      document.getElementById('userDisplay').textContent = payload.name.split(' ')[0].toUpperCase();
+      renderOperators();
+    }
+
+    // Operator list (also sensitive data in-page)
+    const OPERATORS = [
+      { uid: 1,   name: 'System Operator', role: 'admin',   status: 'active' },
+      { uid: 101, name: 'Operator One',    role: 'analyst', status: 'active' },
+      { uid: 102, name: 'John Smith',      role: 'analyst', status: 'suspended' },
+    ];
+
+    function renderOperators() {
+      const html = OPERATORS.map(o => `
+        <div class="op-row">
+          <span class="op-uid">#${o.uid}</span>
+          <span class="op-name">${o.name}</span>
+          <span class="badge ${o.role === 'admin' ? 'red' : 'blue'}">${o.role}</span>
+          <span class="badge ${o.status === 'active' ? 'green' : 'yellow'}">${o.status}</span>
+        </div>`).join('');
+      document.getElementById('opList').innerHTML = html;
+    }
+
+    // VULN #9: eval() — code execution from textarea
+    function runConfig() {
+      const code = document.getElementById('configInput').value;
+      try {
+        const result = eval(code); // intentional
+        document.getElementById('configOutput').textContent =
+          typeof result !== 'undefined' ? String(result) : '(no return value)';
+      } catch (e) {
+        document.getElementById('configOutput').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    // Helper available in eval context — attacker will discover via source inspection
+    function getSystemInfo() {
+      return JSON.stringify({
+        version: '4.2.1',
+        vaultKey: 'FLAG{3v4l_1s_3v1l_c0d3_3x3cut10n_9f2a}',
+        build: 'internal',
+      }, null, 2);
+    }
+
+    function dumpStorage() {
+      const data = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        data[key] = localStorage.getItem(key);
+      }
+      document.getElementById('storageOutput').textContent = JSON.stringify(data, null, 2);
+    }
+
+    checkAccess();
+  </script>
+</body>
+</html>
