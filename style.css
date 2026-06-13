@@ -192,6 +192,8 @@ body {
   margin-bottom: 0.4rem; font-size: 0.8rem;
 }
 
+.flags-section { padding: 2rem; max-width: 1400px; margin: 0 auto; }
+
 /* ─── PORTAL ──────────────────────────────────────────────────────────────── */
 .portal-main {
   padding: 3rem 2rem; max-width: 800px; margin: 0 auto;
